@@ -16,7 +16,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Subtitle Audio Player',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: ThemeData.dark(),
       home: const FileSelectorScreen(),
     );
   }
@@ -34,8 +34,9 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
 
   Future<void> _pickSrt() async {
     final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
       type: FileType.custom,
-      allowedExtensions: ['srt'],
+      allowedExtensions: ['srt', 'vtt'],
     );
     if (result != null && result.files.single.path != null) {
       setState(() => _srtFile = File(result.files.single.path!));
@@ -126,14 +127,12 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   late final AudioPlayer _audioPlayer;
   List<Subtitle> _subtitles = [];
   int _currentIndex = 0;
-  bool _sync = false;
+  bool _sync = true;
   StreamSubscription<Duration>? _posSub;
   final ItemScrollController _scrollController = ItemScrollController();
   final ItemPositionsListener _positionsListener =
       ItemPositionsListener.create();
-  final ScrollController _scrollCtrl = ScrollController();
   bool _loaded = false;
-  final double _itemHeight = 150.0;
 
   @override
   void initState() {
@@ -153,20 +152,19 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   void dispose() {
     _posSub?.cancel();
     _audioPlayer.dispose();
-    _scrollCtrl.dispose();
     super.dispose();
   }
 
   void _loadSubtitles() {
     final lines = widget.srtFile.readAsLinesSync();
     final regex = RegExp(
-      r"(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})",
+      r"(\d{2}:\d{2}:\d{2}[,\.]\d{3}) --> (\d{2}:\d{2}:\d{2}[,\.]\d{3})",
     );
     for (int i = 0; i < lines.length; i++) {
       final match = regex.firstMatch(lines[i]);
       if (match != null) {
         Duration parse(String s) {
-          final parts = s.split(RegExp(r'[:,]')).map(int.parse).toList();
+          final parts = s.split(RegExp(r'[:,\.]')).map(int.parse).toList();
           return Duration(
             hours: parts[0],
             minutes: parts[1],
@@ -192,19 +190,16 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   void _updateSubtitle(Duration pos) {
     for (var i = 0; i < _subtitles.length; i++) {
       if (pos >= _subtitles[i].start && pos <= _subtitles[i].end) {
-        _currentIndex = i;
-        final viewport = _scrollCtrl.position.viewportDimension;
-        final targetOffset =
-            (i * _itemHeight) - (viewport / 2) + (_itemHeight / 2);
-        _scrollCtrl.animateTo(
-          targetOffset.clamp(
-            _scrollCtrl.position.minScrollExtent,
-            _scrollCtrl.position.maxScrollExtent,
-          ),
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeInOut,
-        );
-        setState(() {});
+        if (_currentIndex != i) {
+          _currentIndex = i;
+          _scrollController.scrollTo(
+            index: i,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: 0.5,
+          );
+          setState(() {});
+        }
         break;
       }
     }
@@ -310,20 +305,22 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
             const Divider(),
             // Subtitle list
             Expanded(
-              child: ListView.builder(
-                controller: _scrollCtrl,
+              child: ScrollablePositionedList.builder(
                 itemCount: _subtitles.length,
+                itemScrollController: _scrollController,
+                itemPositionsListener: _positionsListener,
                 itemBuilder: (context, index) {
                   final sub = _subtitles[index];
-                  final selected = _sync && index == _currentIndex;
+                  final highlight = (_sync && index == _currentIndex);
                   return Container(
-                    height: _itemHeight,
-                    color: selected ? Colors.yellow : null,
-                    child: Center(
-                      child: Text(
-                        sub.text,
-                        style: const TextStyle(fontSize: 18),
-                      ),
+                    padding: const EdgeInsets.all(8),
+                    color:
+                        highlight
+                            ? ColorScheme.of(context).primaryContainer
+                            : null,
+                    child: Text(
+                      '${index + 1}\n${sub.text}',
+                      style: TextStyle(fontSize: highlight ? 25 : 18),
                     ),
                   );
                 },
@@ -337,6 +334,7 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
 
   String _formatDuration(Duration d) {
     final two = (int n) => n.toString().padLeft(2, '0');
+
     final minutes = two(d.inMinutes.remainder(60));
     final seconds = two(d.inSeconds.remainder(60));
     return "$minutes:$seconds";
