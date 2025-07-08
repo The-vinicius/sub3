@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 void main() {
@@ -29,37 +29,40 @@ class FileSelectorScreen extends StatefulWidget {
 }
 
 class _FileSelectorScreenState extends State<FileSelectorScreen> {
-  File? _srtFile;
-  File? _mp3File;
+  File? subtitleFile;
+  File? audioFile;
 
-  Future<void> _pickSrt() async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      type: FileType.custom,
-      allowedExtensions: ['srt', 'vtt'],
-    );
+  Future<void> pickSubtitle() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.any);
     if (result != null && result.files.single.path != null) {
-      setState(() => _srtFile = File(result.files.single.path!));
+      final path = result.files.single.path!;
+      final ext = path.split('.').last.toLowerCase();
+      if (['srt', 'vtt'].contains(ext)) {
+        setState(() => subtitleFile = File(path));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a .srt or .vtt file')),
+        );
+      }
     }
   }
 
-  Future<void> _pickMp3() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['mp3'],
-    );
+  Future<void> pickAudio() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
     if (result != null && result.files.single.path != null) {
-      setState(() => _mp3File = File(result.files.single.path!));
+      setState(() => audioFile = File(result.files.single.path!));
     }
   }
 
-  void _openPlayer() {
-    if (_srtFile != null && _mp3File != null) {
+  void openPlayer() {
+    if (subtitleFile != null && audioFile != null) {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder:
-              (_) =>
-                  SubtitlePlayerScreen(srtFile: _srtFile!, mp3File: _mp3File!),
+              (_) => SubtitlePlayerScreen(
+                subtitleFile: subtitleFile!,
+                audioFile: audioFile!,
+              ),
         ),
       );
     }
@@ -75,26 +78,28 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ElevatedButton(
-              onPressed: _pickSrt,
+              onPressed: pickSubtitle,
               child: Text(
-                _srtFile == null
-                    ? 'Pick Subtitle (.srt)'
-                    : 'Subtitle: ${_srtFile!.path.split(Platform.pathSeparator).last}',
+                subtitleFile == null
+                    ? 'Pick Subtitle (.srt/.vtt)'
+                    : 'Subtitle: ${subtitleFile!.path.split(Platform.pathSeparator).last}',
               ),
             ),
             const SizedBox(height: 12),
             ElevatedButton(
-              onPressed: _pickMp3,
+              onPressed: pickAudio,
               child: Text(
-                _mp3File == null
-                    ? 'Pick Audio (.mp3)'
-                    : 'Audio: ${_mp3File!.path.split(Platform.pathSeparator).last}',
+                audioFile == null
+                    ? 'Pick Audio'
+                    : 'Audio: ${audioFile!.path.split(Platform.pathSeparator).last}',
               ),
             ),
             const Spacer(),
             ElevatedButton(
               onPressed:
-                  (_srtFile != null && _mp3File != null) ? _openPlayer : null,
+                  (subtitleFile != null && audioFile != null)
+                      ? openPlayer
+                      : null,
               child: const Text('Play with Subtitles'),
             ),
           ],
@@ -112,59 +117,68 @@ class Subtitle {
 }
 
 class SubtitlePlayerScreen extends StatefulWidget {
-  final File srtFile;
-  final File mp3File;
+  final File subtitleFile;
+  final File audioFile;
   const SubtitlePlayerScreen({
     super.key,
-    required this.srtFile,
-    required this.mp3File,
+    required this.subtitleFile,
+    required this.audioFile,
   });
   @override
   State<SubtitlePlayerScreen> createState() => _SubtitlePlayerScreenState();
 }
 
 class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
-  late final AudioPlayer _audioPlayer;
-  List<Subtitle> _subtitles = [];
-  int _currentIndex = 0;
-  bool _sync = true;
-  StreamSubscription<Duration>? _posSub;
-  final ItemScrollController _scrollController = ItemScrollController();
-  final ItemPositionsListener _positionsListener =
-      ItemPositionsListener.create();
-  bool _loaded = false;
+  final AudioPlayer player = AudioPlayer();
+  late StreamSubscription<Duration> posSub;
+  late StreamSubscription<PlayerState> stateSub;
+
+  final List<Subtitle> subtitles = [];
+  final ItemScrollController scrollCtrl = ItemScrollController();
+
+  Duration duration = Duration.zero;
+  Duration position = Duration.zero;
+  PlayerState playerState = PlayerState.completed;
+  int currentIndex = 0;
+  bool sync = true;
 
   @override
   void initState() {
     super.initState();
-    _audioPlayer = AudioPlayer();
     _loadSubtitles();
-    _audioPlayer.setFilePath(widget.mp3File.path).then((_) {
-      _loaded = true;
+    player.setSource(DeviceFileSource(widget.audioFile.path)).then((_) async {
+      duration = await player.getDuration() ?? Duration.zero;
       setState(() {});
     });
-    _posSub = _audioPlayer.positionStream.listen((pos) {
-      if (_sync) _updateSubtitle(pos);
+    posSub = player.onPositionChanged.listen((p) {
+      position = p;
+      if (sync) _updateSubtitle(p);
+      setState(() {});
+    });
+    stateSub = player.onPlayerStateChanged.listen((s) {
+      playerState = s;
+      setState(() {});
     });
   }
 
   @override
   void dispose() {
-    _posSub?.cancel();
-    _audioPlayer.dispose();
+    posSub.cancel();
+    stateSub.cancel();
+    player.dispose();
     super.dispose();
   }
 
   void _loadSubtitles() {
-    final lines = widget.srtFile.readAsLinesSync();
+    final lines = widget.subtitleFile.readAsLinesSync();
     final regex = RegExp(
       r"(\d{2}:\d{2}:\d{2}[,\.]\d{3}) --> (\d{2}:\d{2}:\d{2}[,\.]\d{3})",
     );
     for (int i = 0; i < lines.length; i++) {
-      final match = regex.firstMatch(lines[i]);
-      if (match != null) {
+      final m = regex.firstMatch(lines[i]);
+      if (m != null) {
         Duration parse(String s) {
-          final parts = s.split(RegExp(r'[:,\.]')).map(int.parse).toList();
+          final parts = s.split(RegExp(r'[\,:\.]')).map(int.parse).toList();
           return Duration(
             hours: parts[0],
             minutes: parts[1],
@@ -173,91 +187,68 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
           );
         }
 
-        final start = parse(match.group(1)!);
-        final end = parse(match.group(2)!);
+        final start = parse(m.group(1)!);
+        final end = parse(m.group(2)!);
         i++;
-        final text = StringBuffer();
+        final buf = StringBuffer();
         while (i < lines.length && lines[i].trim().isNotEmpty) {
-          text.writeln(lines[i]);
+          buf.writeln(lines[i]);
           i++;
         }
-        _subtitles.add(Subtitle(start, end, text.toString().trim()));
+        subtitles.add(Subtitle(start, end, buf.toString().trim()));
       }
     }
     setState(() {});
   }
 
-  void _updateSubtitle(Duration pos) {
-    for (var i = 0; i < _subtitles.length; i++) {
-      if (pos >= _subtitles[i].start && pos <= _subtitles[i].end) {
-        if (_currentIndex != i) {
-          _currentIndex = i;
-          _scrollController.scrollTo(
+  void _updateSubtitle(Duration p) {
+    for (int i = 0; i < subtitles.length; i++) {
+      if (p >= subtitles[i].start && p <= subtitles[i].end) {
+        if (currentIndex != i) {
+          currentIndex = i;
+          scrollCtrl.scrollTo(
             index: i,
             duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
             alignment: 0.5,
           );
-          setState(() {});
         }
         break;
       }
     }
   }
 
-  Future<void> _togglePlay() async {
-    if (_audioPlayer.playing) {
-      await _audioPlayer.pause();
+  void _togglePlay() {
+    if (playerState == PlayerState.playing) {
+      player.pause();
     } else {
-      if (_loaded) {
-        await _audioPlayer.play();
-      }
+      player.resume();
     }
-    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Player')),
+      appBar: AppBar(title: const Text('Player')),
       body: SafeArea(
         child: Column(
           children: [
-            // Playback controls
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // Progress bar
-                  StreamBuilder<Duration>(
-                    stream: _audioPlayer.positionStream,
-                    builder: (context, snapshot) {
-                      final pos = snapshot.data ?? Duration.zero;
-                      final total = _audioPlayer.duration ?? Duration.zero;
-                      return Column(
-                        children: [
-                          Slider(
-                            min: 0,
-                            max: total.inMilliseconds.toDouble(),
-                            value:
-                                pos.inMilliseconds
-                                    .clamp(0, total.inMilliseconds)
-                                    .toDouble(),
-                            onChanged:
-                                (value) => _audioPlayer.seek(
-                                  Duration(milliseconds: value.toInt()),
-                                ),
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(_formatDuration(pos)),
-                              Text(_formatDuration(total)),
-                            ],
-                          ),
-                        ],
-                      );
-                    },
+                  Slider(
+                    min: 0,
+                    max: duration.inMilliseconds.toDouble(),
+                    value:
+                        position.inMilliseconds
+                            .clamp(0, duration.inMilliseconds)
+                            .toDouble(),
+                    onChanged:
+                        (v) => player.seek(Duration(milliseconds: v.toInt())),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [Text(_fmt(position)), Text(_fmt(duration))],
                   ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -265,26 +256,24 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                       IconButton(
                         icon: const Icon(Icons.replay_10),
                         onPressed:
-                            () => _audioPlayer.seek(
-                              (_audioPlayer.position -
-                                  const Duration(seconds: 10)),
+                            () => player.seek(
+                              position - const Duration(seconds: 10),
                             ),
                       ),
                       IconButton(
+                        iconSize: 48,
                         icon: Icon(
-                          _audioPlayer.playing
+                          playerState == PlayerState.playing
                               ? Icons.pause_circle_filled
                               : Icons.play_circle_filled,
                         ),
-                        iconSize: 48,
                         onPressed: _togglePlay,
                       ),
                       IconButton(
                         icon: const Icon(Icons.forward_10),
                         onPressed:
-                            () => _audioPlayer.seek(
-                              (_audioPlayer.position +
-                                  const Duration(seconds: 10)),
+                            () => player.seek(
+                              position + const Duration(seconds: 10),
                             ),
                       ),
                       const SizedBox(width: 16),
@@ -292,8 +281,8 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                         children: [
                           const Text('Sync'),
                           Switch(
-                            value: _sync,
-                            onChanged: (v) => setState(() => _sync = v),
+                            value: sync,
+                            onChanged: (v) => setState(() => sync = v),
                           ),
                         ],
                       ),
@@ -303,24 +292,19 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
               ),
             ),
             const Divider(),
-            // Subtitle list
             Expanded(
               child: ScrollablePositionedList.builder(
-                itemCount: _subtitles.length,
-                itemScrollController: _scrollController,
-                itemPositionsListener: _positionsListener,
+                itemCount: subtitles.length,
+                itemScrollController: scrollCtrl,
                 itemBuilder: (context, index) {
-                  final sub = _subtitles[index];
-                  final highlight = (_sync && index == _currentIndex);
+                  final s = subtitles[index];
+                  final hl = (sync && index == currentIndex);
                   return Container(
                     padding: const EdgeInsets.all(8),
-                    color:
-                        highlight
-                            ? ColorScheme.of(context).primaryContainer
-                            : null,
+                    color: hl ? ColorScheme.of(context).primaryContainer : null,
                     child: Text(
-                      '${index + 1}\n${sub.text}',
-                      style: TextStyle(fontSize: highlight ? 25 : 18),
+                      '${index + 1}\n${s.text}',
+                      style: TextStyle(fontSize: hl ? 25 : 18),
                     ),
                   );
                 },
@@ -332,11 +316,8 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
     );
   }
 
-  String _formatDuration(Duration d) {
-    final two = (int n) => n.toString().padLeft(2, '0');
-
-    final minutes = two(d.inMinutes.remainder(60));
-    final seconds = two(d.inSeconds.remainder(60));
-    return "$minutes:$seconds";
+  String _fmt(Duration d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}';
   }
 }
