@@ -3,7 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import 'package:sub3/app/models/sub.dart';
+import 'package:sub3/app/ui/widgets/card_sub.dart';
+import 'package:sub3/app/services/database_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,6 +19,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Subtitle Audio Player',
       theme: ThemeData.dark(),
       home: const FileSelectorScreen(),
@@ -31,13 +36,83 @@ class FileSelectorScreen extends StatefulWidget {
 class _FileSelectorScreenState extends State<FileSelectorScreen> {
   File? subtitleFile;
   File? audioFile;
+  List<Sub> subs = [];
+  final DatabaseService _databaseService = DatabaseService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSubsFromDatabase();
+  }
+
+  // Load subs from database
+  Future<void> _loadSubsFromDatabase() async {
+    try {
+      final loadedSubs = await _databaseService.getAllSubs();
+      setState(() {
+        subs = loadedSubs;
+      });
+    } catch (e) {}
+  }
+
+  // Save sub to database
+  Future<void> _saveSubToDatabase(Sub sub) async {
+    try {
+      await _databaseService.saveSub(sub);
+      await _loadSubsFromDatabase(); // Reload the list
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Subtitle "${sub.name}" saved successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving subtitle: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Delete sub from database
+  Future<void> _deleteSubFromDatabase(int id) async {
+    try {
+      await _databaseService.deleteSub(id);
+      await _loadSubsFromDatabase(); // Reload the list
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Subtitle deleted successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting subtitle: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<String> getPath(String name) async {
+    final appDoc = await getApplicationDocumentsDirectory();
+    final dest = File('${appDoc.path}/$name');
+    return dest.path;
+  }
 
   Future<void> pickSubtitle() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.any);
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: false,
+    );
     if (result != null && result.files.single.path != null) {
-      final path = result.files.single.path!;
+      final path = await getPath(result.files.single.name);
       final ext = path.split('.').last.toLowerCase();
       if (['srt', 'vtt'].contains(ext)) {
+        await File(result.files.single.path!).copy(path);
         setState(() => subtitleFile = File(path));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -49,23 +124,95 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
 
   Future<void> pickAudio() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.audio);
-    if (result != null && result.files.single.path != null) {
-      setState(() => audioFile = File(result.files.single.path!));
+    if (result != null) {
+      final path = await getPath(result.files.single.name);
+      await File(result.files.single.path!).copy(path);
+      setState(() => audioFile = File(path));
     }
   }
 
-  void openPlayer() {
-    if (subtitleFile != null && audioFile != null) {
+  void openPlayer(Sub sub) {
+    if (sub.subPath1.existsSync() && sub.mp3Path.existsSync()) {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder:
               (_) => SubtitlePlayerScreen(
-                subtitleFile: subtitleFile!,
-                audioFile: audioFile!,
+                subtitleFile: sub.subPath1,
+                audioFile: sub.mp3Path,
               ),
         ),
       );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('One or both files no longer exist')),
+      );
     }
+  }
+
+  void subModal() {
+    String subtitleName = '';
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Subtitle Info'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  decoration: const InputDecoration(labelText: 'Subtitle Name'),
+                  onChanged: (value) {
+                    subtitleName = value;
+                  },
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: pickSubtitle,
+                  child: Text(
+                    subtitleFile == null
+                        ? 'Pick Subtitle (.srt/.vtt)'
+                        : 'Subtitle: ${subtitleFile!.path.split(Platform.pathSeparator).last}',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: pickAudio,
+                  child: Text(
+                    audioFile == null
+                        ? 'Pick Audio'
+                        : 'Audio: ${audioFile!.path.split(Platform.pathSeparator).last}',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  if (subtitleFile != null && audioFile != null) {
+                    final newSub = Sub(subtitleName, subtitleFile!, audioFile!);
+                    await _saveSubToDatabase(newSub);
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Please select both subtitle and audio files',
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+    );
   }
 
   @override
@@ -74,36 +221,25 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
       appBar: AppBar(title: const Text('Select Files')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ElevatedButton(
-              onPressed: pickSubtitle,
-              child: Text(
-                subtitleFile == null
-                    ? 'Pick Subtitle (.srt/.vtt)'
-                    : 'Subtitle: ${subtitleFile!.path.split(Platform.pathSeparator).last}',
-              ),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: pickAudio,
-              child: Text(
-                audioFile == null
-                    ? 'Pick Audio'
-                    : 'Audio: ${audioFile!.path.split(Platform.pathSeparator).last}',
-              ),
-            ),
-            const Spacer(),
-            ElevatedButton(
-              onPressed:
-                  (subtitleFile != null && audioFile != null)
-                      ? openPlayer
-                      : null,
-              child: const Text('Play with Subtitles'),
-            ),
-          ],
+        child: ListView.builder(
+          itemCount: subs.length,
+          itemBuilder: (context, index) {
+            final sub = subs[index];
+            return CardSub(
+              sub: sub,
+              onTap: openPlayer,
+              onDelete: (subToDelete) {
+                if (subToDelete.id != null) {
+                  _deleteSubFromDatabase(subToDelete.id!);
+                }
+              },
+            );
+          },
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: subModal,
+        child: const Icon(Icons.add),
       ),
     );
   }
@@ -302,9 +438,22 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                   return Container(
                     padding: const EdgeInsets.all(8),
                     color: hl ? ColorScheme.of(context).primaryContainer : null,
-                    child: Text(
-                      '${index + 1}\n${s.text}',
-                      style: TextStyle(fontSize: hl ? 25 : 18),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SelectableText(
+                            '${index + 1}\n${s.text}',
+                            style: TextStyle(fontSize: hl ? 25 : 18),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            player.seek(s.start);
+                            player.resume();
+                          },
+                          icon: Icon(Icons.play_circle_filled),
+                        ),
+                      ],
                     ),
                   );
                 },
