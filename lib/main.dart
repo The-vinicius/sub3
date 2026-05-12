@@ -8,6 +8,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:sub3/app/models/sub.dart';
 import 'package:sub3/app/ui/widgets/card_sub.dart';
 import 'package:sub3/app/services/database_service.dart';
+import 'package:translator/translator.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -266,11 +267,16 @@ class SubtitlePlayerScreen extends StatefulWidget {
 
 class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   final AudioPlayer player = AudioPlayer();
+  final GoogleTranslator _translator = GoogleTranslator();
   late StreamSubscription<Duration> posSub;
   late StreamSubscription<PlayerState> stateSub;
 
   final List<Subtitle> subtitles = [];
   final ItemScrollController scrollCtrl = ItemScrollController();
+
+  /// Texto original (EN) → tradução (PT); persiste na sessão desta tela.
+  final Map<String, String> _ptTranslationCache = {};
+  final Set<String> _translationInFlight = {};
 
   Duration duration = Duration.zero;
   Duration position = Duration.zero;
@@ -361,6 +367,38 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
     }
   }
 
+  Future<void> _translateCueToPt(String cueText) async {
+    final key = cueText;
+    if (key.trim().isEmpty) return;
+    if (_ptTranslationCache.containsKey(key)) return;
+    if (_translationInFlight.contains(key)) return;
+
+    setState(() => _translationInFlight.add(key));
+    try {
+      final translation = await _translator.translate(
+        cueText,
+        from: 'en',
+        to: 'pt',
+      );
+      if (!mounted) return;
+      _ptTranslationCache[key] = translation.text;
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro na tradução: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _translationInFlight.remove(key));
+      } else {
+        _translationInFlight.remove(key);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -439,11 +477,59 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                     padding: const EdgeInsets.all(8),
                     color: hl ? ColorScheme.of(context).primaryContainer : null,
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: SelectableText(
-                            '${index + 1}\n${s.text}',
-                            style: TextStyle(fontSize: hl ? 25 : 18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SelectableText(
+                                '${index + 1}\n${s.text}',
+                                style: TextStyle(fontSize: hl ? 25 : 18),
+                              ),
+                              if (_translationInFlight.contains(s.text))
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Row(
+                                    children: [
+                                      const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Text(
+                                        'Traduzindo…',
+                                        style: TextStyle(
+                                          fontSize: hl ? 16 : 14,
+                                          color:
+                                              ColorScheme.of(
+                                                context,
+                                              ).onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              if (_ptTranslationCache.containsKey(s.text))
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: SelectableText(
+                                    _ptTranslationCache[s.text]!,
+                                    style: TextStyle(
+                                      fontSize: (hl ? 25 : 18) * 0.88,
+                                      fontStyle: FontStyle.italic,
+                                      height: 1.35,
+                                      color:
+                                          ColorScheme.of(
+                                            context,
+                                          ).onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                         IconButton(
@@ -451,7 +537,12 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                             player.seek(s.start);
                             player.resume();
                           },
-                          icon: Icon(Icons.play_circle_filled),
+                          icon: const Icon(Icons.play_circle_filled),
+                        ),
+                        IconButton(
+                          tooltip: 'Traduzir (EN → PT)',
+                          onPressed: () => _translateCueToPt(s.text),
+                          icon: const Icon(Icons.translate),
                         ),
                       ],
                     ),
