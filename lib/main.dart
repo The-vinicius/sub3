@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:sub3/app/models/sub.dart';
 import 'package:sub3/app/ui/widgets/card_sub.dart';
+import 'package:sub3/app/ui/widgets/word_tappable_text.dart';
 import 'package:sub3/app/services/database_service.dart';
 import 'package:sub3/app/services/youtube_download_service.dart';
 import 'package:translator/translator.dart';
@@ -755,9 +756,14 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              SelectableText(
-                                '${index + 1}\n${s.text}',
+                              Text(
+                                '${index + 1}',
                                 style: TextStyle(fontSize: hl ? 25 : 18),
+                              ),
+                              WordTappableText(
+                                s.text,
+                                style: TextStyle(fontSize: hl ? 25 : 18, color: Colors.white),
+                                enabled: true,
                               ),
                               if (_translationInFlight.contains(s.text))
                                 Padding(
