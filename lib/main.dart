@@ -11,9 +11,15 @@ import 'package:sub3/app/ui/widgets/word_tappable_text.dart';
 import 'package:sub3/app/services/database_service.dart';
 import 'package:sub3/app/services/youtube_download_service.dart';
 import 'package:translator/translator.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  runApp(const MyApp());
+
   runApp(const MyApp());
 }
 
@@ -442,22 +448,24 @@ class _YoutubeImportDialogState extends State<YoutubeImportDialog> {
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: _loadingSubs || _downloading ? null : _loadSubtitleLanguages,
-                icon: _loadingSubs
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.translate_outlined),
+                onPressed:
+                    _loadingSubs || _downloading
+                        ? null
+                        : _loadSubtitleLanguages,
+                icon:
+                    _loadingSubs
+                        ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.translate_outlined),
                 label: const Text('Carregar idiomas de legenda'),
               ),
               if (_tracks.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Legenda',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Legenda'),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<SubtitleTrackOption>(
                       isExpanded: true,
@@ -466,9 +474,10 @@ class _YoutubeImportDialogState extends State<YoutubeImportDialog> {
                         for (final t in _tracks)
                           DropdownMenuItem(value: t, child: Text(t.label)),
                       ],
-                      onChanged: _downloading
-                          ? null
-                          : (v) => setState(() => _selected = v),
+                      onChanged:
+                          _downloading
+                              ? null
+                              : (v) => setState(() => _selected = v),
                     ),
                   ),
                 ),
@@ -556,6 +565,7 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   PlayerState playerState = PlayerState.completed;
   int currentIndex = 0;
   bool sync = true;
+  double syncOffsetSeconds = 0.0;
 
   @override
   void initState() {
@@ -616,9 +626,20 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
     setState(() {});
   }
 
+  void _adjustSyncOffset(double delta) {
+    setState(() {
+      syncOffsetSeconds += delta;
+      syncOffsetSeconds = (syncOffsetSeconds * 10).roundToDouble() / 10;
+      if (sync) _updateSubtitle(position);
+    });
+  }
+
   void _updateSubtitle(Duration p) {
+    final offset = Duration(milliseconds: (syncOffsetSeconds * 1000).round());
     for (int i = 0; i < subtitles.length; i++) {
-      if (p >= subtitles[i].start && p <= subtitles[i].end) {
+      final start = subtitles[i].start + offset;
+      final end = subtitles[i].end + offset;
+      if (p >= start && p <= end) {
         if (currentIndex != i) {
           currentIndex = i;
           scrollCtrl.scrollTo(
@@ -735,6 +756,94 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        'Ajuste:',
+                        style: TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(width: 4),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(36, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () => _adjustSyncOffset(-1.0),
+                        child: const Text('-1s'),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(36, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () => _adjustSyncOffset(-0.5),
+                        child: const Text('-0.5s'),
+                      ),
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              syncOffsetSeconds != 0
+                                  ? Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer
+                                  : Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${syncOffsetSeconds >= 0 ? '+' : ''}${syncOffsetSeconds.toStringAsFixed(1)}s',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color:
+                                syncOffsetSeconds != 0
+                                    ? Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimaryContainer
+                                    : null,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(36, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () => _adjustSyncOffset(0.5),
+                        child: const Text('+0.5s'),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(36, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () => _adjustSyncOffset(1.0),
+                        child: const Text('+1s'),
+                      ),
+                      if (syncOffsetSeconds != 0)
+                        IconButton(
+                          tooltip: 'Resetar sincronia',
+                          icon: const Icon(Icons.restore, size: 20),
+                          onPressed: () {
+                            setState(() {
+                              syncOffsetSeconds = 0.0;
+                              if (sync) _updateSubtitle(position);
+                            });
+                          },
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -762,7 +871,10 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                               ),
                               WordTappableText(
                                 s.text,
-                                style: TextStyle(fontSize: hl ? 25 : 18, color: Colors.white),
+                                style: TextStyle(
+                                  fontSize: hl ? 25 : 18,
+                                  color: Colors.white,
+                                ),
                                 enabled: true,
                               ),
                               if (_translationInFlight.contains(s.text))
@@ -812,7 +924,13 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                         ),
                         IconButton(
                           onPressed: () {
-                            player.seek(s.start);
+                            final offset = Duration(
+                              milliseconds: (syncOffsetSeconds * 1000).round(),
+                            );
+                            final target = s.start + offset;
+                            player.seek(
+                              target < Duration.zero ? Duration.zero : target,
+                            );
                             player.resume();
                           },
                           icon: const Icon(Icons.play_circle_filled),

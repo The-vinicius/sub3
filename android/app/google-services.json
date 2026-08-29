@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "1004474386773",
+    "project_id": "flutter-75ad4",
+    "storage_bucket": "flutter-75ad4.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004474386773:android:03ad69a1423f5e72ad07dc",
+        "android_client_info": {
+          "package_name": "theblu.com.netblog"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1004474386773-fb219ro22c7ijbgq6gedu9f7rfvqvjpj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSLGgwbW-0tmrPbCSyOQXDwTNeZXiNq9c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1004474386773-fb219ro22c7ijbgq6gedu9f7rfvqvjpj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004474386773:android:be0278c3d7b4b532ad07dc",
+        "android_client_info": {
+          "package_name": "theblu.com.sub3.sub3"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1004474386773-fb219ro22c7ijbgq6gedu9f7rfvqvjpj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSLGgwbW-0tmrPbCSyOQXDwTNeZXiNq9c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1004474386773-fb219ro22c7ijbgq6gedu9f7rfvqvjpj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
