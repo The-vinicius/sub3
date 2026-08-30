@@ -14,18 +14,43 @@ class DictionaryEntry {
   });
 
   factory DictionaryEntry.fromJson(Map<String, dynamic> json) {
+    // Extract phonetics from 'phonetics' or from entries' 'pronunciations'
+    final List<Phonetic> phonetics = [];
+    if (json['phonetics'] is List) {
+      phonetics.addAll(
+        (json['phonetics'] as List<dynamic>)
+            .map((p) => Phonetic.fromJson(p as Map<String, dynamic>)),
+      );
+    } else if (json['entries'] is List) {
+      for (final entry in json['entries']) {
+        if (entry is Map<String, dynamic> && entry['pronunciations'] is List) {
+          for (final pron in entry['pronunciations']) {
+            if (pron is Map<String, dynamic>) {
+              phonetics.add(Phonetic.fromJson(pron));
+            }
+          }
+        }
+      }
+    }
+
+    String? phonetic = json['phonetic'] as String?;
+    if (phonetic == null && phonetics.isNotEmpty) {
+      phonetic = phonetics.first.text;
+    }
+
+    // Meanings from 'meanings' (legacy API) or 'entries' (freedictionaryapi)
+    final rawMeanings = json['meanings'] ?? json['entries'];
+    final meanings = (rawMeanings as List<dynamic>?)
+            ?.map((m) => Meaning.fromJson(m as Map<String, dynamic>))
+            .toList() ??
+        [];
+
     return DictionaryEntry(
       word: json['word'] ?? '',
-      phonetic: json['phonetic'],
-      phonetics: (json['phonetics'] as List<dynamic>?)
-              ?.map((p) => Phonetic.fromJson(p))
-              .toList() ??
-          [],
-      origin: json['origin'],
-      meanings: (json['meanings'] as List<dynamic>?)
-              ?.map((m) => Meaning.fromJson(m))
-              .toList() ??
-          [],
+      phonetic: phonetic,
+      phonetics: phonetics,
+      origin: json['origin'] as String?,
+      meanings: meanings,
     );
   }
 
@@ -46,8 +71,8 @@ class Phonetic {
 
   factory Phonetic.fromJson(Map<String, dynamic> json) {
     return Phonetic(
-      text: json['text'],
-      audio: json['audio'],
+      text: json['text'] as String?,
+      audio: json['audio'] as String?,
     );
   }
 
@@ -71,10 +96,12 @@ class Meaning {
   });
 
   factory Meaning.fromJson(Map<String, dynamic> json) {
+    // Check if definitions come from 'definitions' (legacy) or 'senses' (freedictionaryapi)
+    final defsList = json['definitions'] ?? json['senses'];
     return Meaning(
       partOfSpeech: json['partOfSpeech'] ?? '',
-      definitions: (json['definitions'] as List<dynamic>?)
-              ?.map((d) => Definition.fromJson(d))
+      definitions: (defsList as List<dynamic>?)
+              ?.map((d) => Definition.fromJson(d as Map<String, dynamic>))
               .toList() ??
           [],
       synonyms: List<String>.from(json['synonyms'] as List<dynamic>? ?? []),
@@ -104,9 +131,16 @@ class Definition {
   });
 
   factory Definition.fromJson(Map<String, dynamic> json) {
+    String? example = json['example'] as String?;
+    if (example == null &&
+        json['examples'] is List &&
+        (json['examples'] as List).isNotEmpty) {
+      example = (json['examples'] as List).first?.toString();
+    }
+
     return Definition(
       definition: json['definition'] ?? '',
-      example: json['example'],
+      example: example,
       synonyms: List<String>.from(json['synonyms'] as List<dynamic>? ?? []),
       antonyms: List<String>.from(json['antonyms'] as List<dynamic>? ?? []),
     );

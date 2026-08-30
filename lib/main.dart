@@ -10,16 +10,10 @@ import 'package:sub3/app/ui/widgets/card_sub.dart';
 import 'package:sub3/app/ui/widgets/word_tappable_text.dart';
 import 'package:sub3/app/services/database_service.dart';
 import 'package:sub3/app/services/youtube_download_service.dart';
-import 'package:translator/translator.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+import 'package:sub3/app/services/translation_service.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const MyApp());
-
   runApp(const MyApp());
 }
 
@@ -58,10 +52,13 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
   Future<void> _loadSubsFromDatabase() async {
     try {
       final loadedSubs = await _databaseService.getAllSubs();
+      if (!mounted) return;
       setState(() {
         subs = loadedSubs;
       });
-    } catch (e) {}
+    } catch (_) {
+      // Ignore database loading error on initial load
+    }
   }
 
   // Save sub to database
@@ -94,6 +91,7 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
     try {
       await _databaseService.deleteSub(id);
       await _loadSubsFromDatabase(); // Reload the list
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Subtitle deleted successfully!'),
@@ -101,6 +99,7 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error deleting subtitle: $e'),
@@ -126,8 +125,10 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
       final ext = path.split('.').last.toLowerCase();
       if (['srt', 'vtt'].contains(ext)) {
         await File(result.files.single.path!).copy(path);
+        if (!mounted) return;
         setState(() => subtitleFile = File(path));
       } else {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please select a .srt or .vtt file')),
         );
@@ -549,15 +550,14 @@ class SubtitlePlayerScreen extends StatefulWidget {
 
 class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   final AudioPlayer player = AudioPlayer();
-  final GoogleTranslator _translator = GoogleTranslator();
+  final TranslationService _translationService = TranslationService.instance;
   late StreamSubscription<Duration> posSub;
   late StreamSubscription<PlayerState> stateSub;
 
   final List<Subtitle> subtitles = [];
   final ItemScrollController scrollCtrl = ItemScrollController();
 
-  /// Texto original (EN) → tradução (PT); persiste na sessão desta tela.
-  final Map<String, String> _ptTranslationCache = {};
+  TargetLanguage _selectedLanguage = TranslationService.supportedLanguages.first;
   final Set<String> _translationInFlight = {};
 
   Duration duration = Duration.zero;
@@ -661,42 +661,280 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
     }
   }
 
-  Future<void> _translateCueToPt(String cueText) async {
-    final key = cueText;
-    if (key.trim().isEmpty) return;
-    if (_ptTranslationCache.containsKey(key)) return;
-    if (_translationInFlight.contains(key)) return;
+  Future<void> _translateCue(String cueText) async {
+    final key = cueText.trim();
+    if (key.isEmpty) return;
+    final inFlightKey = '${_selectedLanguage.code}:$key';
+    if (_translationInFlight.contains(inFlightKey)) return;
 
-    setState(() => _translationInFlight.add(key));
+    setState(() => _translationInFlight.add(inFlightKey));
     try {
-      final translation = await _translator.translate(
-        cueText,
-        from: 'en',
-        to: 'pt',
+      await _translationService.translate(
+        text: key,
+        targetLanguage: _selectedLanguage,
       );
       if (!mounted) return;
-      _ptTranslationCache[key] = translation.text;
+      setState(() {});
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Erro na tradução: $e'),
+          content: Text('Erro na tradução (${_selectedLanguage.name}): $e'),
           backgroundColor: Colors.red,
         ),
       );
     } finally {
       if (mounted) {
-        setState(() => _translationInFlight.remove(key));
+        setState(() => _translationInFlight.remove(inFlightKey));
       } else {
-        _translationInFlight.remove(key);
+        _translationInFlight.remove(inFlightKey);
       }
     }
+  }
+
+  void _showCustomModelDialog() {
+    final controller = TextEditingController(text: _translationService.currentModel);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Modelo personalizado'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Nome do Modelo',
+            hintText: 'Ex: gpt-4o, gpt-4-turbo, o3-mini...',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final newModel = controller.text.trim();
+              if (newModel.isNotEmpty) {
+                setState(() {
+                  _translationService.setModel(newModel);
+                });
+                Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Modelo alterado para: $newModel'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Player')),
+      appBar: AppBar(
+        title: const Text('Player'),
+        actions: [
+          // Model selection button
+          PopupMenuButton<String>(
+            tooltip: 'Selecionar modelo OpenAI',
+            initialValue: _translationService.currentModel,
+            onSelected: (String model) {
+              if (model == '__custom__') {
+                _showCustomModelDialog();
+              } else {
+                setState(() {
+                  _translationService.setModel(model);
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Modelo alterado para: $model'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            itemBuilder: (BuildContext context) {
+              final items = <PopupMenuEntry<String>>[];
+              for (final m in TranslationService.supportedModels) {
+                final isSelected = m.id == _translationService.currentModel;
+                items.add(
+                  PopupMenuItem<String>(
+                    value: m.id,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.smart_toy_outlined,
+                          size: 20,
+                          color: isSelected
+                              ? Theme.of(context).colorScheme.primary
+                              : null,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                m.name,
+                                style: TextStyle(
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isSelected
+                                      ? Theme.of(context).colorScheme.primary
+                                      : null,
+                                ),
+                              ),
+                              Text(
+                                m.description,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isSelected)
+                          Icon(
+                            Icons.check,
+                            size: 18,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              items.add(const PopupMenuDivider());
+              items.add(
+                const PopupMenuItem<String>(
+                  value: '__custom__',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_outlined, size: 20),
+                      SizedBox(width: 10),
+                      Text('Outro modelo personalizado...'),
+                    ],
+                  ),
+                ),
+              );
+              return items;
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.smart_toy_outlined, size: 16),
+                  const SizedBox(width: 4),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 80),
+                    child: Text(
+                      _translationService.currentModel,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, size: 16),
+                ],
+              ),
+            ),
+          ),
+
+          // Language selection button
+          PopupMenuButton<TargetLanguage>(
+            tooltip: 'Selecionar idioma de tradução',
+            initialValue: _selectedLanguage,
+            onSelected: (TargetLanguage lang) {
+              setState(() {
+                _selectedLanguage = lang;
+              });
+            },
+            itemBuilder: (BuildContext context) {
+              return TranslationService.supportedLanguages.map((lang) {
+                final isSelected = lang.code == _selectedLanguage.code;
+                return PopupMenuItem<TargetLanguage>(
+                  value: lang,
+                  child: Row(
+                    children: [
+                      Text(lang.flag, style: const TextStyle(fontSize: 20)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '${lang.name} (${lang.nativeName})',
+                          style: TextStyle(
+                            fontWeight:
+                                isSelected ? FontWeight.bold : FontWeight.normal,
+                            color:
+                                isSelected
+                                    ? Theme.of(context).colorScheme.primary
+                                    : null,
+                          ),
+                        ),
+                      ),
+                      if (isSelected)
+                        Icon(
+                          Icons.check,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                    ],
+                  ),
+                );
+              }).toList();
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_selectedLanguage.flag, style: const TextStyle(fontSize: 16)),
+                  const SizedBox(width: 6),
+                  Text(
+                    _selectedLanguage.code.toUpperCase(),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  const Icon(Icons.arrow_drop_down, size: 18),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -877,7 +1115,7 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                                 ),
                                 enabled: true,
                               ),
-                              if (_translationInFlight.contains(s.text))
+                              if (_translationInFlight.contains('${_selectedLanguage.code}:${s.text.trim()}'))
                                 Padding(
                                   padding: const EdgeInsets.only(top: 8),
                                   child: Row(
@@ -891,7 +1129,7 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                                       ),
                                       const SizedBox(width: 10),
                                       Text(
-                                        'Traduzindo…',
+                                        'Traduzindo para ${_selectedLanguage.name}…',
                                         style: TextStyle(
                                           fontSize: hl ? 16 : 14,
                                           color:
@@ -903,11 +1141,17 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                                     ],
                                   ),
                                 ),
-                              if (_ptTranslationCache.containsKey(s.text))
+                              if (_translationService.hasCachedTranslation(
+                                _selectedLanguage.code,
+                                s.text.trim(),
+                              ))
                                 Padding(
                                   padding: const EdgeInsets.only(top: 8),
                                   child: SelectableText(
-                                    _ptTranslationCache[s.text]!,
+                                    _translationService.getCachedTranslation(
+                                      _selectedLanguage.code,
+                                      s.text.trim(),
+                                    )!,
                                     style: TextStyle(
                                       fontSize: (hl ? 25 : 18) * 0.88,
                                       fontStyle: FontStyle.italic,
@@ -936,8 +1180,9 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                           icon: const Icon(Icons.play_circle_filled),
                         ),
                         IconButton(
-                          tooltip: 'Traduzir (EN → PT)',
-                          onPressed: () => _translateCueToPt(s.text),
+                          tooltip:
+                              'Traduzir para ${_selectedLanguage.name} (${_selectedLanguage.flag})',
+                          onPressed: () => _translateCue(s.text),
                           icon: const Icon(Icons.translate),
                         ),
                       ],

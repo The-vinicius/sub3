@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:sub3/app/models/dictionary_entry.dart';
 
 class DictionaryService {
-  static const String _baseUrl = 'https://api.dictionaryapi.dev/api/v2/entries/en';
+  static const String _baseUrl =
+      'https://freedictionaryapi.com/api/v1/entries/en';
   final Map<String, DictionaryEntry> _cache = {};
 
   /// Fetch word definition from the Dictionary API
@@ -17,14 +19,28 @@ class DictionaryService {
     }
 
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/$cleanWord'),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .get(Uri.parse('$_baseUrl/$cleanWord'))
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        if (data.isNotEmpty) {
-          final entry = DictionaryEntry.fromJson(data[0]);
+        final dynamic decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          final entries = decoded['entries'] as List<dynamic>?;
+          // If entries is empty, word was not found
+          if (entries != null && entries.isNotEmpty) {
+            final entry = DictionaryEntry.fromJson(decoded);
+            _cache[cleanWord] = entry;
+            return entry;
+          }
+          if (entries == null && decoded['word'] != null) {
+            final entry = DictionaryEntry.fromJson(decoded);
+            _cache[cleanWord] = entry;
+            return entry;
+          }
+        } else if (decoded is List && decoded.isNotEmpty) {
+          final entry =
+              DictionaryEntry.fromJson(decoded[0] as Map<String, dynamic>);
           _cache[cleanWord] = entry;
           return entry;
         }
@@ -34,10 +50,7 @@ class DictionaryService {
       }
     } catch (e) {
       // Log error in debug mode
-      assert(() {
-        print('Dictionary API error: $e');
-        return true;
-      }());
+      debugPrint('Dictionary API error: $e');
       return null;
     }
 

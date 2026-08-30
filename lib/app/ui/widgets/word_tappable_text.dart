@@ -53,13 +53,6 @@ class WordTappableText extends StatelessWidget {
     return RegExp(r'^\w+$').hasMatch(token);
   }
 
-  Color _getTextColor(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return isDark
-        ? Theme.of(context).primaryColor.withValues(alpha: 1.0)
-        : Theme.of(context).primaryColor.withValues(alpha: 0.8);
-  }
-
   @override
   Widget build(BuildContext context) {
     final tokens = _tokenizeWords(text);
