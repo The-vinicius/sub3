@@ -42,8 +42,8 @@ dependencies:
   path: ^1.9.0
   youtube_explode_dart: ^3.1.0
   http: ^1.1.0
-  google_generative_ai: ^0.4.7
   dart_openai: ^8.0.0
+  sqflite_common_ffi: ^2.4.3
 
 dev_dependencies:
   flutter_test:

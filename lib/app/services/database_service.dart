@@ -1,4 +1,7 @@
-import 'package:sqflite/sqflite.dart';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import '../models/sub.dart';
 
@@ -24,10 +27,26 @@ class DatabaseService {
 
   // Initialize database
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'sub3_database.db');
+    String dbPath;
+
+    if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+      // Método para Linux e Desktop: Inicializa FFI do SQLite
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+
+      try {
+        final appDocDir = await getApplicationDocumentsDirectory();
+        dbPath = join(appDocDir.path, 'sub3_database.db');
+      } catch (_) {
+        dbPath = join(await getDatabasesPath(), 'sub3_database.db');
+      }
+    } else {
+      // Método padrão mantido para Android e iOS
+      dbPath = join(await getDatabasesPath(), 'sub3_database.db');
+    }
     
     return await openDatabase(
-      path,
+      dbPath,
       version: 1,
       onCreate: _onCreate,
     );

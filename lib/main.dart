@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:sub3/app/models/sub.dart';
 import 'package:sub3/app/ui/widgets/card_sub.dart';
+import 'package:flutter/foundation.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sub3/app/ui/widgets/word_tappable_text.dart';
 import 'package:sub3/app/services/database_service.dart';
 import 'package:sub3/app/services/youtube_download_service.dart';
@@ -14,6 +16,10 @@ import 'package:sub3/app/services/translation_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
   runApp(const MyApp());
 }
 
@@ -116,32 +122,51 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
   }
 
   Future<void> pickSubtitle() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-      allowMultiple: false,
-    );
-    if (result != null && result.files.single.path != null) {
-      final path = await getPath(result.files.single.name);
-      final ext = path.split('.').last.toLowerCase();
-      if (['srt', 'vtt'].contains(ext)) {
-        await File(result.files.single.path!).copy(path);
-        if (!mounted) return;
-        setState(() => subtitleFile = File(path));
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a .srt or .vtt file')),
-        );
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: false,
+      );
+      if (result != null && result.files.single.path != null) {
+        final path = await getPath(result.files.single.name);
+        final ext = path.split('.').last.toLowerCase();
+        if (['srt', 'vtt'].contains(ext)) {
+          await File(result.files.single.path!).copy(path);
+          if (!mounted) return;
+          setState(() => subtitleFile = File(path));
+        } else {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please select a .srt or .vtt file')),
+          );
+        }
       }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to open file picker: ${e.toString().replaceAll("Exception: ", "")}'),
+        ),
+      );
     }
   }
 
   Future<void> pickAudio() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
-    if (result != null) {
-      final path = await getPath(result.files.single.name);
-      await File(result.files.single.path!).copy(path);
-      setState(() => audioFile = File(path));
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+      if (result != null && result.files.single.path != null) {
+        final path = await getPath(result.files.single.name);
+        await File(result.files.single.path!).copy(path);
+        if (!mounted) return;
+        setState(() => audioFile = File(path));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to open file picker: ${e.toString().replaceAll("Exception: ", "")}'),
+        ),
+      );
     }
   }
 
