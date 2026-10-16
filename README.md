@@ -1,16 +1,13 @@
-# sub3
+# How to build for android
 
-A new Flutter project.
+create a file .env with the following content:
 
-## Getting Started
+```
+{
+    "OPENAI_API_KEY":"<your_openai_api_key>"
+}
+```
+flutter pub get
 
-This project is a starting point for a Flutter application.
+flutter build apk --release --dart-define-from-file=.env
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
