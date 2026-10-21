@@ -155,10 +155,8 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
     try {
       final result = await FilePicker.platform.pickFiles(type: FileType.audio);
       if (result != null && result.files.single.path != null) {
-        final path = await getPath(result.files.single.name);
-        await File(result.files.single.path!).copy(path);
         if (!mounted) return;
-        setState(() => audioFile = File(path));
+        setState(() => audioFile = File(result.files.single.path!));
       }
     } catch (e) {
       if (!mounted) return;
