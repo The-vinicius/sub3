@@ -31,6 +31,15 @@ void main() {
       expect(result, isEmpty);
     });
 
+    test('translateStream yields empty for blank text', () async {
+      final service = TranslationService.instance;
+      final pt = TranslationService.supportedLanguages.first;
+      final chunks = await service
+          .translateStream(text: '   ', targetLanguage: pt)
+          .toList();
+      expect(chunks, ['']);
+    });
+
     test('TargetLanguage equality works by code', () {
       const lang1 = TargetLanguage(
         code: 'fr',

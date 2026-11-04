@@ -1,4 +1,4 @@
-import 'package:dart_openai/dart_openai.dart';
+import 'package:ollama_dart/ollama_dart.dart';
 
 class TargetLanguage {
   final String code;
@@ -24,33 +24,17 @@ class TargetLanguage {
   int get hashCode => code.hashCode;
 }
 
-class TranslationModel {
-  final String id;
-  final String name;
-  final String description;
-
-  const TranslationModel({
-    required this.id,
-    required this.name,
-    required this.description,
-  });
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TranslationModel &&
-          runtimeType == other.runtimeType &&
-          id == other.id;
-
-  @override
-  int get hashCode => id.hashCode;
-}
-
 class TranslationService {
   static final TranslationService instance = TranslationService._internal();
   TranslationService._internal();
 
   factory TranslationService() => instance;
+
+  // ⚠️ Ajuste o nome do modelo conforme aparece no `ollama list`
+  static const String modelName = 'maternion/hy-mt2:1.8b';
+
+  final OllamaClient _client = OllamaClient();
+  final Map<String, String> _cache = {};
 
   static const List<TargetLanguage> supportedLanguages = [
     TargetLanguage(
@@ -77,87 +61,7 @@ class TranslationService {
       nativeName: 'Français',
       flag: '🇫🇷',
     ),
-    TargetLanguage(
-      code: 'de',
-      name: 'Alemão',
-      nativeName: 'Deutsch',
-      flag: '🇩🇪',
-    ),
-    TargetLanguage(
-      code: 'it',
-      name: 'Italiano',
-      nativeName: 'Italiano',
-      flag: '🇮🇹',
-    ),
-    TargetLanguage(
-      code: 'ja',
-      name: 'Japonês',
-      nativeName: '日本語',
-      flag: '🇯🇵',
-    ),
-    TargetLanguage(
-      code: 'ko',
-      name: 'Coreano',
-      nativeName: '한국어',
-      flag: '🇰🇷',
-    ),
-    TargetLanguage(code: 'zh', name: 'Chinês', nativeName: '中文', flag: '🇨🇳'),
-    TargetLanguage(
-      code: 'ru',
-      name: 'Russo',
-      nativeName: 'Русский',
-      flag: '🇷🇺',
-    ),
   ];
-
-  static const List<TranslationModel> supportedModels = [
-    TranslationModel(
-      id: 'gpt-4o-mini',
-      name: 'GPT-4o Mini',
-      description: 'Rápido, econômico e eficiente (Recomendado)',
-    ),
-    TranslationModel(
-      id: 'gpt-5.6-luna',
-      name: 'GPT-5.6 Luna',
-      description: 'Mais rápida e precisa',
-    ),
-  ];
-
-  // Cache: "languageCode:text" -> translatedText
-  final Map<String, String> _cache = {};
-
-  static String apiKey = const String.fromEnvironment(
-    'OPENAI_API_KEY',
-    defaultValue: '',
-  );
-  static String? baseUrl;
-  static String modelName = 'gpt-4o-mini';
-
-  String get currentModel => modelName;
-
-  void setModel(String model) {
-    if (model.trim().isNotEmpty) {
-      modelName = model.trim();
-    }
-  }
-
-  void clearCache() {
-    _cache.clear();
-  }
-
-  static const String _systemPrompt =
-      'Você é um tradutor especialista em legendas de filmes e áudios. '
-      'Traduza o texto fornecido com naturalidade, precisão e fluência para o idioma solicitado. '
-      'Retorne APENAS o texto traduzido, sem explicações adicionais, sem aspas extras e sem notas.';
-
-  void _configureOpenAI() {
-    if (apiKey.isNotEmpty) {
-      OpenAI.apiKey = apiKey;
-    }
-    if (baseUrl != null && baseUrl!.isNotEmpty) {
-      OpenAI.baseUrl = baseUrl!;
-    }
-  }
 
   String _cacheKey(String targetCode, String text) => '$targetCode:$text';
 
@@ -169,6 +73,22 @@ class TranslationService {
     return _cache[_cacheKey(targetCode, text)];
   }
 
+  /// Verifica se o modelo está disponível no Ollama
+  Future<bool> isModelAvailable() async {
+    try {
+      final models = await _client.models.list();
+      final available = models.models ?? [];
+      return available.any(
+        (m) =>
+            m.name?.toLowerCase().contains(modelName.toLowerCase()) == true ||
+            m.name == modelName,
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Tradução normal (completa de uma vez)
   Future<String> translate({
     required String text,
     required TargetLanguage targetLanguage,
@@ -181,39 +101,88 @@ class TranslationService {
       return _cache[key]!;
     }
 
-    _configureOpenAI();
-
-    final userPrompt =
-        'Traduza o seguinte texto para ${targetLanguage.name} (${targetLanguage.code}):\n"$trimmed"';
-
-    final chatCompletion = await OpenAI.instance.chat.create(
-      model: modelName,
-      messages: [
-        OpenAIChatCompletionChoiceMessageModel(
-          role: OpenAIChatMessageRole.system,
-          content: [
-            OpenAIChatCompletionChoiceMessageContentItemModel.text(
-              _systemPrompt,
-            ),
+    try {
+      final response = await _client.chat.create(
+        request: ChatRequest(
+          model: modelName,
+          messages: [
+            ChatMessage.system(_systemPrompt),
+            ChatMessage.user(_buildUserPrompt(trimmed, targetLanguage)),
           ],
+          options: const ModelOptions(temperature: 0.2),
         ),
-        OpenAIChatCompletionChoiceMessageModel(
-          role: OpenAIChatMessageRole.user,
-          content: [
-            OpenAIChatCompletionChoiceMessageContentItemModel.text(userPrompt),
-          ],
-        ),
-      ],
-    );
+      );
 
-    final contentItems = chatCompletion.choices.first.message.content;
-    final translated =
-        contentItems?.map((item) => item.text ?? '').join().trim() ?? '';
+      final translated = response.message?.content?.trim() ?? '';
 
-    if (translated.isNotEmpty) {
-      _cache[key] = translated;
+      if (translated.isNotEmpty) {
+        _cache[key] = translated;
+      }
+
+      return translated;
+    } catch (e) {
+      throw Exception('Erro ao traduzir com Ollama ($modelName): $e');
+    }
+  }
+
+  /// Tradução com streaming. Cada evento é o texto acumulado até aquele ponto.
+  Stream<String> translateStream({
+    required String text,
+    required TargetLanguage targetLanguage,
+  }) async* {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      yield '';
+      return;
     }
 
-    return translated;
+    final key = _cacheKey(targetLanguage.code, trimmed);
+    if (_cache.containsKey(key)) {
+      yield _cache[key]!;
+      return;
+    }
+
+    final buffer = StringBuffer();
+
+    try {
+      await for (final chunk in _client.chat.createStream(
+        request: ChatRequest(
+          model: modelName,
+          messages: [
+            ChatMessage.system(_systemPrompt),
+            ChatMessage.user(_buildUserPrompt(trimmed, targetLanguage)),
+          ],
+          options: const ModelOptions(temperature: 0.2),
+        ),
+      )) {
+        final content = chunk.message?.content ?? '';
+        if (content.isEmpty) continue;
+        buffer.write(content);
+        yield buffer.toString();
+      }
+
+      final fullText = buffer.toString().trim();
+      if (fullText.isNotEmpty) {
+        _cache[key] = fullText;
+      }
+    } catch (e) {
+      throw Exception('Erro no streaming de tradução ($modelName): $e');
+    }
+  }
+
+  // Prompt de sistema otimizado para tradução de legendas
+  static const String _systemPrompt = '''
+Você é um tradutor profissional especializado em legendas de filmes e séries.
+Traduza de forma natural, fluida e fiel ao original.
+Mantenha o tom, gírias e estilo quando fizer sentido.
+Responda APENAS com a tradução, sem explicações, aspas ou comentários.
+''';
+
+  String _buildUserPrompt(String text, TargetLanguage target) {
+    return 'Traduza o seguinte texto para ${target.name} (${target.code}):\n\n$text';
+  }
+
+  void dispose() {
+    _client.close();
   }
 }

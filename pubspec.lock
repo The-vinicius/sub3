@@ -384,6 +384,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.19.2"
+  ollama_dart:
+    dependency: "direct main"
+    description:
+      name: ollama_dart
+      sha256: "346f8c9578ac927bebd8be95c05855947be80f69d24752c2053cecf31eb4ac8a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0"
   path:
     dependency: "direct main"
     description:

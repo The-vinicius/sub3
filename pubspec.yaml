@@ -44,6 +44,7 @@ dependencies:
   http: ^1.1.0
   dart_openai: ^8.0.0
   sqflite_common_ffi: ^2.4.3
+  ollama_dart: ^4.0.0
 
 dev_dependencies:
   flutter_test:

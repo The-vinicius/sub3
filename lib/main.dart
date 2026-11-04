@@ -145,7 +145,9 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to open file picker: ${e.toString().replaceAll("Exception: ", "")}'),
+          content: Text(
+            'Failed to open file picker: ${e.toString().replaceAll("Exception: ", "")}',
+          ),
         ),
       );
     }
@@ -162,7 +164,9 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to open file picker: ${e.toString().replaceAll("Exception: ", "")}'),
+          content: Text(
+            'Failed to open file picker: ${e.toString().replaceAll("Exception: ", "")}',
+          ),
         ),
       );
     }
@@ -580,8 +584,10 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   final List<Subtitle> subtitles = [];
   final ItemScrollController scrollCtrl = ItemScrollController();
 
-  TargetLanguage _selectedLanguage = TranslationService.supportedLanguages.first;
+  TargetLanguage _selectedLanguage =
+      TranslationService.supportedLanguages.first;
   final Set<String> _translationInFlight = {};
+  final Map<String, String> _streamingTranslations = {};
 
   Duration duration = Duration.zero;
   Duration position = Duration.zero;
@@ -692,12 +698,13 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
 
     setState(() => _translationInFlight.add(inFlightKey));
     try {
-      await _translationService.translate(
+      await for (final partial in _translationService.translateStream(
         text: key,
         targetLanguage: _selectedLanguage,
-      );
-      if (!mounted) return;
-      setState(() {});
+      )) {
+        if (!mounted) return;
+        setState(() => _streamingTranslations[inFlightKey] = partial);
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -708,53 +715,55 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
       );
     } finally {
       if (mounted) {
-        setState(() => _translationInFlight.remove(inFlightKey));
+        setState(() {
+          _translationInFlight.remove(inFlightKey);
+          _streamingTranslations.remove(inFlightKey);
+        });
       } else {
         _translationInFlight.remove(inFlightKey);
+        _streamingTranslations.remove(inFlightKey);
       }
     }
   }
 
   void _showCustomModelDialog() {
-    final controller = TextEditingController(text: _translationService.currentModel);
+    final controller = TextEditingController(text: "maternion/hy-mt2:1.8b");
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Modelo personalizado'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nome do Modelo',
-            hintText: 'Ex: gpt-4o, gpt-4-turbo, o3-mini...',
-            border: OutlineInputBorder(),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Modelo personalizado'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Nome do Modelo',
+                hintText: 'Ex: gpt-4o, gpt-4-turbo, o3-mini...',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final newModel = controller.text.trim();
+                  if (newModel.isNotEmpty) {
+                    Navigator.of(ctx).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Modelo alterado para: $newModel'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Salvar'),
+              ),
+            ],
           ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final newModel = controller.text.trim();
-              if (newModel.isNotEmpty) {
-                setState(() {
-                  _translationService.setModel(newModel);
-                });
-                Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Modelo alterado para: $newModel'),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              }
-            },
-            child: const Text('Salvar'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -767,14 +776,11 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
           // Model selection button
           PopupMenuButton<String>(
             tooltip: 'Selecionar modelo OpenAI',
-            initialValue: _translationService.currentModel,
+            initialValue: "maternion/hy-mt2:1.8b",
             onSelected: (String model) {
               if (model == '__custom__') {
                 _showCustomModelDialog();
               } else {
-                setState(() {
-                  _translationService.setModel(model);
-                });
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Modelo alterado para: $model'),
@@ -785,8 +791,8 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
             },
             itemBuilder: (BuildContext context) {
               final items = <PopupMenuEntry<String>>[];
-              for (final m in TranslationService.supportedModels) {
-                final isSelected = m.id == _translationService.currentModel;
+              for (final m in []) {
+                final isSelected = m.id == "maternion/hy-mt2:1.8b";
                 items.add(
                   PopupMenuItem<String>(
                     value: m.id,
@@ -795,9 +801,10 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                         Icon(
                           Icons.smart_toy_outlined,
                           size: 20,
-                          color: isSelected
-                              ? Theme.of(context).colorScheme.primary
-                              : null,
+                          color:
+                              isSelected
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -808,21 +815,26 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                               Text(
                                 m.name,
                                 style: TextStyle(
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                  color: isSelected
-                                      ? Theme.of(context).colorScheme.primary
-                                      : null,
+                                  fontWeight:
+                                      isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                  color:
+                                      isSelected
+                                          ? Theme.of(
+                                            context,
+                                          ).colorScheme.primary
+                                          : null,
                                 ),
                               ),
                               Text(
                                 m.description,
                                 style: TextStyle(
                                   fontSize: 11,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
+                                  color:
+                                      Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ],
@@ -872,7 +884,7 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 80),
                     child: Text(
-                      _translationService.currentModel,
+                      "maternion/hy-mt2:1.8b",
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 11,
@@ -909,7 +921,9 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                           '${lang.name} (${lang.nativeName})',
                           style: TextStyle(
                             fontWeight:
-                                isSelected ? FontWeight.bold : FontWeight.normal,
+                                isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
                             color:
                                 isSelected
                                     ? Theme.of(context).colorScheme.primary
@@ -941,7 +955,10 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(_selectedLanguage.flag, style: const TextStyle(fontSize: 16)),
+                  Text(
+                    _selectedLanguage.flag,
+                    style: const TextStyle(fontSize: 16),
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     _selectedLanguage.code.toUpperCase(),
@@ -1116,6 +1133,15 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                 itemBuilder: (context, index) {
                   final s = subtitles[index];
                   final hl = (sync && index == currentIndex);
+                  final cueKey = '${_selectedLanguage.code}:${s.text.trim()}';
+                  final live = _streamingTranslations[cueKey];
+                  final cached = _translationService.getCachedTranslation(
+                    _selectedLanguage.code,
+                    s.text.trim(),
+                  );
+                  final shown =
+                      (live != null && live.isNotEmpty) ? live : cached;
+                  final inFlight = _translationInFlight.contains(cueKey);
                   return Container(
                     padding: const EdgeInsets.all(8),
                     color: hl ? ColorScheme.of(context).primaryContainer : null,
@@ -1138,7 +1164,8 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                                 ),
                                 enabled: true,
                               ),
-                              if (_translationInFlight.contains('${_selectedLanguage.code}:${s.text.trim()}'))
+                              if (inFlight &&
+                                  (shown == null || shown.isEmpty))
                                 Padding(
                                   padding: const EdgeInsets.only(top: 8),
                                   child: Row(
@@ -1164,17 +1191,11 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                                     ],
                                   ),
                                 ),
-                              if (_translationService.hasCachedTranslation(
-                                _selectedLanguage.code,
-                                s.text.trim(),
-                              ))
+                              if (shown != null && shown.isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 8),
                                   child: SelectableText(
-                                    _translationService.getCachedTranslation(
-                                      _selectedLanguage.code,
-                                      s.text.trim(),
-                                    )!,
+                                    shown,
                                     style: TextStyle(
                                       fontSize: (hl ? 25 : 18) * 0.88,
                                       fontStyle: FontStyle.italic,
