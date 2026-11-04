@@ -61,6 +61,12 @@ class TranslationService {
       nativeName: 'Français',
       flag: '🇫🇷',
     ),
+    TargetLanguage(
+      code: 'ja',
+      name: 'Japonês',
+      nativeName: '日本語',
+      flag: '🇯🇵',
+    ),
   ];
 
   String _cacheKey(String targetCode, String text) => '$targetCode:$text';
