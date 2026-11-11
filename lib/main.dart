@@ -13,6 +13,8 @@ import 'package:sub3/app/ui/widgets/word_tappable_text.dart';
 import 'package:sub3/app/services/database_service.dart';
 import 'package:sub3/app/services/youtube_download_service.dart';
 import 'package:sub3/app/services/translation_service.dart';
+import 'package:sub3/app/services/gguf_model_service.dart';
+import 'package:sub3/app/ui/widgets/offline_model_banner.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,6 +54,7 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
   void initState() {
     super.initState();
     _loadSubsFromDatabase();
+    GgufModelService.instance.refresh();
   }
 
   // Load subs from database
@@ -289,20 +292,27 @@ class _FileSelectorScreenState extends State<FileSelectorScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: ListView.builder(
-          itemCount: subs.length,
-          itemBuilder: (context, index) {
-            final sub = subs[index];
-            return CardSub(
-              sub: sub,
-              onTap: openPlayer,
-              onDelete: (subToDelete) {
-                if (subToDelete.id != null) {
-                  _deleteSubFromDatabase(subToDelete.id!);
-                }
-              },
-            );
-          },
+        child: Column(
+          children: [
+            const OfflineModelBanner(),
+            Expanded(
+              child: ListView.builder(
+                itemCount: subs.length,
+                itemBuilder: (context, index) {
+                  final sub = subs[index];
+                  return CardSub(
+                    sub: sub,
+                    onTap: openPlayer,
+                    onDelete: (subToDelete) {
+                      if (subToDelete.id != null) {
+                        _deleteSubFromDatabase(subToDelete.id!);
+                      }
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
@@ -599,6 +609,7 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   @override
   void initState() {
     super.initState();
+    GgufModelService.instance.refresh();
     _loadSubtitles();
     player.setSource(DeviceFileSource(widget.audioFile.path)).then((_) async {
       duration = await player.getDuration() ?? Duration.zero;

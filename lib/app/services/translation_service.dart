@@ -1,4 +1,5 @@
 import 'package:ollama_dart/ollama_dart.dart';
+import 'package:sub3/app/services/gguf_model_service.dart';
 
 class TargetLanguage {
   final String code;
@@ -30,8 +31,12 @@ class TranslationService {
 
   factory TranslationService() => instance;
 
-  // ⚠️ Ajuste o nome do modelo conforme aparece no `ollama list`
+  // ⚠️ Ajuste o nome do modelo conforme aparece no `ollama list` (desktop)
   static const String modelName = 'maternion/hy-mt2:1.8b';
+  static const String ggufModelName = GgufModelService.displayName;
+
+  /// Android: GGUF on-device via flutter_gguf. Desktop: Ollama.
+  static bool get usesOnDeviceGguf => GgufModelService.isOnDeviceSupported;
 
   final OllamaClient _client = OllamaClient();
   final Map<String, String> _cache = {};
@@ -79,8 +84,12 @@ class TranslationService {
     return _cache[_cacheKey(targetCode, text)];
   }
 
-  /// Verifica se o modelo está disponível no Ollama
+  /// Verifica se o backend de tradução está pronto (GGUF no Android, Ollama no desktop).
   Future<bool> isModelAvailable() async {
+    if (usesOnDeviceGguf) {
+      await GgufModelService.instance.refresh();
+      return GgufModelService.instance.isDownloaded;
+    }
     try {
       final models = await _client.models.list();
       final available = models.models ?? [];
@@ -105,6 +114,21 @@ class TranslationService {
     final key = _cacheKey(targetLanguage.code, trimmed);
     if (_cache.containsKey(key)) {
       return _cache[key]!;
+    }
+
+    if (usesOnDeviceGguf) {
+      String last = '';
+      await for (final partial in _translateWithGguf(
+        trimmed,
+        targetLanguage,
+      )) {
+        last = partial;
+      }
+      final translated = last.trim();
+      if (translated.isNotEmpty) {
+        _cache[key] = translated;
+      }
+      return translated;
     }
 
     try {
@@ -148,6 +172,22 @@ class TranslationService {
       return;
     }
 
+    if (usesOnDeviceGguf) {
+      String last = '';
+      await for (final partial in _translateWithGguf(
+        trimmed,
+        targetLanguage,
+      )) {
+        last = partial;
+        yield partial;
+      }
+      final fullText = last.trim();
+      if (fullText.isNotEmpty) {
+        _cache[key] = fullText;
+      }
+      return;
+    }
+
     final buffer = StringBuffer();
 
     try {
@@ -176,6 +216,26 @@ class TranslationService {
     }
   }
 
+  Stream<String> _translateWithGguf(
+    String text,
+    TargetLanguage targetLanguage,
+  ) async* {
+    if (!GgufModelService.instance.isDownloaded) {
+      throw Exception(
+        'Baixe o modelo $ggufModelName na tela inicial para traduzir offline.',
+      );
+    }
+    try {
+      await for (final partial in GgufModelService.instance.generateTranslation(
+        prompt: _buildUserPrompt(text, targetLanguage),
+      )) {
+        yield partial;
+      }
+    } catch (e) {
+      throw Exception('Erro ao traduzir offline ($ggufModelName): $e');
+    }
+  }
+
   // Prompt de sistema otimizado para tradução de legendas
   static const String _systemPrompt = '''
 Você é um tradutor profissional especializado em legendas de filmes e séries.
@@ -185,6 +245,11 @@ Responda APENAS com a tradução, sem explicações, aspas ou comentários.
 ''';
 
   String _buildUserPrompt(String text, TargetLanguage target) {
+    if (usesOnDeviceGguf) {
+      return 'Translate the following text into ${target.name}. '
+          'Note that you should only output the translated result without any '
+          'additional explanation: $text';
+    }
     return 'Traduza o seguinte texto para ${target.name} (${target.code}):\n\n$text';
   }
 
