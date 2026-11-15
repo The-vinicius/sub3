@@ -23,18 +23,18 @@ class GgufModelService extends ChangeNotifier {
   GgufModelService._internal();
   static final GgufModelService instance = GgufModelService._internal();
 
-  static const String repoId = 'AngelSlim/Hy-MT2-1.8B-1.25Bit-GGUF';
-  static const String fileName = 'Hy-MT2-1.8B-1.25bit-v2.gguf';
-  static const String displayName = 'Hy-MT2 1.8B 1.25Bit';
+  static const String repoId = 'unsloth/Hy-MT2-1.8B-GGUF';
+  static const String fileName = 'Hy-MT2-1.8B-Q4_K_M.gguf';
+  static const String displayName = 'Hy-MT2 1.8B Q4_K_M';
   static const String downloadUrl =
-      'https://huggingface.co/AngelSlim/Hy-MT2-1.8B-1.25Bit-GGUF/resolve/main/Hy-MT2-1.8B-1.25bit-v2.gguf';
+      'https://huggingface.co/unsloth/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q4_K_M.gguf';
 
-  static bool get isOnDeviceSupported =>
-      !kIsWeb && Platform.isAndroid;
+  static bool get isOnDeviceSupported => !kIsWeb && Platform.isAndroid;
 
-  GgufRuntimeState _state = isOnDeviceSupported
-      ? GgufRuntimeState.missing
-      : GgufRuntimeState.unsupported;
+  GgufRuntimeState _state =
+      isOnDeviceSupported
+          ? GgufRuntimeState.missing
+          : GgufRuntimeState.unsupported;
   double _progress = 0;
   int _bytesReceived = 0;
   int? _bytesTotal;
@@ -122,7 +122,9 @@ class GgufModelService extends ChangeNotifier {
 
     final destPath = await localModelPath();
     final dest = File(destPath);
-    if (!force && await dest.exists() && await dest.length() > 50 * 1024 * 1024) {
+    if (!force &&
+        await dest.exists() &&
+        await dest.length() > 50 * 1024 * 1024) {
       _modelPath = destPath;
       _setState(GgufRuntimeState.ready);
       return;
@@ -290,9 +292,7 @@ class GgufModelService extends ChangeNotifier {
     }
   }
 
-  Stream<String> generateTranslation({
-    required String prompt,
-  }) async* {
+  Stream<String> generateTranslation({required String prompt}) async* {
     final model = await ensureLoaded();
     final formatted = await _formatHyPrompt(model, prompt);
     final buffer = StringBuffer();
@@ -312,12 +312,14 @@ class GgufModelService extends ChangeNotifier {
     }
   }
 
-  Future<String> _formatHyPrompt(gguf.LlamaModel model, String userPrompt) async {
+  Future<String> _formatHyPrompt(
+    gguf.LlamaModel model,
+    String userPrompt,
+  ) async {
     try {
-      final templated = await model.applyChatTemplate(
-        [gguf.ChatMessage.user(userPrompt)],
-        addAssistant: true,
-      );
+      final templated = await model.applyChatTemplate([
+        gguf.ChatMessage.user(userPrompt),
+      ], addAssistant: true);
       if (templated.trim().isNotEmpty &&
           !templated.contains('<|im_start|>') &&
           !templated.contains('im_start')) {
