@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import 'package:sub3/app/services/anki_service.dart';
 import 'package:sub3/app/services/gguf_model_service.dart';
 import 'package:sub3/app/services/translation_service.dart';
 import 'package:sub3/app/ui/widgets/word_tappable_text.dart';
@@ -39,6 +40,7 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
   TargetLanguage _selectedLanguage =
       TranslationService.supportedLanguages.first;
   final Set<String> _translationInFlight = {};
+  final Set<String> _ankiInFlight = {};
   final Map<String, String> _streamingTranslations = {};
 
   Duration duration = Duration.zero;
@@ -175,6 +177,70 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
       } else {
         _translationInFlight.remove(inFlightKey);
         _streamingTranslations.remove(inFlightKey);
+      }
+    }
+  }
+
+  Future<void> _sendCueToAnki(Subtitle s) async {
+    final key = '${s.start.inMilliseconds}:${s.text.trim()}';
+    if (_ankiInFlight.contains(key)) return;
+
+    setState(() => _ankiInFlight.add(key));
+    try {
+      final offset = Duration(
+        milliseconds: (syncOffsetSeconds * 1000).round(),
+      );
+      var start = s.start + offset;
+      var end = s.end + offset;
+      if (start < Duration.zero) start = Duration.zero;
+      if (end <= start) {
+        throw StateError('Intervalo de áudio inválido para este subtítulo.');
+      }
+
+      final cueText = s.text.trim();
+      var translation = _translationService.getCachedTranslation(
+        _selectedLanguage.code,
+        cueText,
+      );
+      if (translation == null || translation.isEmpty) {
+        try {
+          translation = await _translationService.translate(
+            text: cueText,
+            targetLanguage: _selectedLanguage,
+          );
+        } catch (_) {
+          translation = null;
+        }
+      }
+
+      await AnkiService.instance.sendCue(
+        audioFile: widget.audioFile,
+        start: start,
+        end: end,
+        sentence: cueText,
+        translation: translation,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cartão enviado para o baralho ${AnkiService.deckName}'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível enviar para o Anki: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _ankiInFlight.remove(key));
+      } else {
+        _ankiInFlight.remove(key);
       }
     }
   }
@@ -587,6 +653,8 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                   final s = subtitles[index];
                   final hl = (sync && index == currentIndex);
                   final cueKey = '${_selectedLanguage.code}:${s.text.trim()}';
+                  final ankiKey = '${s.start.inMilliseconds}:${s.text.trim()}';
+                  final sendingAnki = _ankiInFlight.contains(ankiKey);
                   final live = _streamingTranslations[cueKey];
                   final cached = _translationService.getCachedTranslation(
                     _selectedLanguage.code,
@@ -680,6 +748,21 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                               'Traduzir para ${_selectedLanguage.name} (${_selectedLanguage.flag})',
                           onPressed: () => _translateCue(s.text),
                           icon: const Icon(Icons.translate),
+                        ),
+                        IconButton(
+                          tooltip: 'Cortar áudio e enviar para o Anki',
+                          onPressed:
+                              sendingAnki ? null : () => _sendCueToAnki(s),
+                          icon:
+                              sendingAnki
+                                  ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Icon(Icons.content_cut),
                         ),
                       ],
                     ),

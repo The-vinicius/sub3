@@ -45,3 +45,7 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("com.github.ankidroid:Anki-Android:api-v1.1.0")
+}
