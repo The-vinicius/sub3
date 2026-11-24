@@ -118,10 +118,7 @@ class TranslationService {
 
     if (usesOnDeviceGguf) {
       String last = '';
-      await for (final partial in _translateWithGguf(
-        trimmed,
-        targetLanguage,
-      )) {
+      await for (final partial in _translateWithGguf(trimmed, targetLanguage)) {
         last = partial;
       }
       final translated = last.trim();
@@ -174,10 +171,7 @@ class TranslationService {
 
     if (usesOnDeviceGguf) {
       String last = '';
-      await for (final partial in _translateWithGguf(
-        trimmed,
-        targetLanguage,
-      )) {
+      await for (final partial in _translateWithGguf(trimmed, targetLanguage)) {
         last = partial;
         yield partial;
       }
@@ -195,7 +189,6 @@ class TranslationService {
         request: ChatRequest(
           model: modelName,
           messages: [
-            ChatMessage.system(_systemPrompt),
             ChatMessage.user(_buildUserPrompt(trimmed, targetLanguage)),
           ],
           options: const ModelOptions(temperature: 0.2),
@@ -238,19 +231,21 @@ class TranslationService {
 
   // Prompt de sistema otimizado para tradução de legendas
   static const String _systemPrompt = '''
-Você é um tradutor profissional especializado em legendas de filmes e séries.
-Traduza de forma natural, fluida e fiel ao original.
-Mantenha o tom, gírias e estilo quando fizer sentido.
-Responda APENAS com a tradução, sem explicações, aspas ou comentários.
+Você é um tradutor profissional especializado em legendas de filmes, séries e animes.
+
+Regras obrigatórias:
+- Traduza de forma natural, fluida e fiel ao original.
+- Mantenha o tom, gírias, palavrões, linguagem sexual e estilo do original sem suavizar, censurar ou moralizar.
+- Conteúdo adulto, sexual, vulgar ou ofensivo deve ser traduzido de forma equivalente e direta.
+- Não use eufemismos. Não transforme linguagem sexual em algo "educado".
+- Responda APENAS com a tradução, sem explicações, aspas, comentários ou qualquer texto extra.
+- Nunca suavize, censure ou "limpe" linguagem sexual, palavrões ou conteúdo adulto. Traduza com a mesma intensidade e vulgaridade do original.
 ''';
 
   String _buildUserPrompt(String text, TargetLanguage target) {
-    if (usesOnDeviceGguf) {
-      return 'Translate the following text into ${target.name}. '
-          'Note that you should only output the translated result without any '
-          'additional explanation: $text';
-    }
-    return 'Traduza o seguinte texto para ${target.name} (${target.code}):\n\n$text';
+    return 'Translate the following subtitle faithfully into ${target.name}. '
+        'Keep the meaning accurate and literal to the original, without inventing context or explanations. '
+        'Output ONLY the translated text:\n\n$text';
   }
 
   void dispose() {
