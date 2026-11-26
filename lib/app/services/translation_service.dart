@@ -44,31 +44,31 @@ class TranslationService {
   static const List<TargetLanguage> supportedLanguages = [
     TargetLanguage(
       code: 'pt',
-      name: 'Português',
+      name: 'Brazilian Portuguese',
       nativeName: 'Português (Brasil)',
       flag: '🇧🇷',
     ),
     TargetLanguage(
       code: 'es',
-      name: 'Espanhol',
+      name: 'Spanish',
       nativeName: 'Español',
       flag: '🇪🇸',
     ),
     TargetLanguage(
       code: 'en',
-      name: 'Inglês',
+      name: 'English',
       nativeName: 'English',
       flag: '🇺🇸',
     ),
     TargetLanguage(
       code: 'fr',
-      name: 'Francês',
+      name: 'French',
       nativeName: 'Français',
       flag: '🇫🇷',
     ),
     TargetLanguage(
       code: 'ja',
-      name: 'Japonês',
+      name: 'Japanese',
       nativeName: '日本語',
       flag: '🇯🇵',
     ),
@@ -133,7 +133,6 @@ class TranslationService {
         request: ChatRequest(
           model: modelName,
           messages: [
-            ChatMessage.system(_systemPrompt),
             ChatMessage.user(_buildUserPrompt(trimmed, targetLanguage)),
           ],
           options: const ModelOptions(temperature: 0.2),
@@ -229,23 +228,28 @@ class TranslationService {
     }
   }
 
-  // Prompt de sistema otimizado para tradução de legendas
-  static const String _systemPrompt = '''
-Você é um tradutor profissional especializado em legendas de filmes, séries e animes.
+  static const Map<String, String> _promptLangName = {
+    'pt': 'Brazilian Portuguese', // teste também só 'Portuguese'
+    'es': 'Spanish',
+    'en': 'English',
+    'fr': 'French',
+    'ja': 'Japanese',
+  };
 
-Regras obrigatórias:
-- Traduza de forma natural, fluida e fiel ao original.
-- Mantenha o tom, gírias, palavrões, linguagem sexual e estilo do original sem suavizar, censurar ou moralizar.
-- Conteúdo adulto, sexual, vulgar ou ofensivo deve ser traduzido de forma equivalente e direta.
-- Não use eufemismos. Não transforme linguagem sexual em algo "educado".
-- Responda APENAS com a tradução, sem explicações, aspas, comentários ou qualquer texto extra.
-- Nunca suavize, censure ou "limpe" linguagem sexual, palavrões ou conteúdo adulto. Traduza com a mesma intensidade e vulgaridade do original.
-''';
-
-  String _buildUserPrompt(String text, TargetLanguage target) {
-    return 'Translate the following subtitle faithfully into ${target.name}. '
-        'Keep the meaning accurate and literal to the original, without inventing context or explanations. '
-        'Output ONLY the translated text:\n\n$text';
+  String _buildUserPrompt(
+    String text,
+    TargetLanguage target, {
+    List<String> context = const [],
+  }) {
+    final lang = _promptLangName[target.code] ?? target.name;
+    if (context.isEmpty) {
+      return 'Translate the following segment into $lang, '
+          'without additional explanation.\n\n$text';
+    }
+    return '${context.join('\n')}\n'
+        'Refer to the context above and translate the following text into '
+        '$lang. Do not translate the context, output only the translation, '
+        'without additional explanation:\n$text';
   }
 
   void dispose() {
