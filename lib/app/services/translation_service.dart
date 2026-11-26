@@ -26,6 +26,13 @@ class TargetLanguage {
 }
 
 class TranslationService {
+  /// Remove tags ASS/HTML que confundem o modelo.
+  static cleanSubtitle(String s) =>
+      s
+          .replaceAll(RegExp(r'\{\\[^}]*\}'), '')
+          .replaceAll(RegExp(r'<[^>]+>'), '')
+          .replaceAll(r'\N', '\n')
+          .trim();
   static final TranslationService instance = TranslationService._internal();
   TranslationService._internal();
 
@@ -80,7 +87,11 @@ class TranslationService {
     return _cache.containsKey(_cacheKey(targetCode, text));
   }
 
-  String? getCachedTranslation(String targetCode, String text) {
+  String? getCachedTranslation(
+    String targetCode,
+    String text, {
+    List<String>? context,
+  }) {
     return _cache[_cacheKey(targetCode, text)];
   }
 
@@ -107,6 +118,7 @@ class TranslationService {
   Future<String> translate({
     required String text,
     required TargetLanguage targetLanguage,
+    required List<String> context,
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return '';
@@ -155,6 +167,7 @@ class TranslationService {
   Stream<String> translateStream({
     required String text,
     required TargetLanguage targetLanguage,
+    required List<String> context,
   }) async* {
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
@@ -229,7 +242,7 @@ class TranslationService {
   }
 
   static const Map<String, String> _promptLangName = {
-    'pt': 'Brazilian Portuguese', // teste também só 'Portuguese'
+    'pt': 'Brazilian Portuguese',
     'es': 'Spanish',
     'en': 'English',
     'fr': 'French',

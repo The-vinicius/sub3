@@ -137,6 +137,35 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
     }
   }
 
+  static const int _ctxLines = 3;
+  static const Duration _ctxMaxGap = Duration(seconds: 8);
+  // Japonês omite sujeito com frequência: a próxima linha ajuda a resolver.
+  static const bool _ctxIncludeNextForJa = true;
+  static const Duration _ctxNextMaxGap = Duration(seconds: 4);
+  static final RegExp _kanaRe = RegExp(r'[\u3040-\u30ff]');
+
+  String _cueText(int i) => TranslationService.cleanSubtitle(subtitles[i].text);
+
+  /// Últimas linhas ORIGINAIS antes do cue, parando em pausas longas
+  /// (mudança de cena). Para cues em japonês, acrescenta também a próxima.
+  List<String> _contextFor(int index) {
+    final out = <String>[];
+    for (var j = index - 1; j >= 0 && out.length < _ctxLines; j--) {
+      if (subtitles[j + 1].start - subtitles[j].end > _ctxMaxGap) break;
+      final t = _cueText(j).replaceAll('\n', ' ').trim();
+      if (t.isNotEmpty) out.insert(0, t);
+    }
+
+    if (_ctxIncludeNextForJa &&
+        index + 1 < subtitles.length &&
+        _kanaRe.hasMatch(_cueText(index)) &&
+        subtitles[index + 1].start - subtitles[index].end <= _ctxNextMaxGap) {
+      final next = _cueText(index + 1).replaceAll('\n', ' ').trim();
+      if (next.isNotEmpty) out.add(next);
+    }
+    return out;
+  }
+
   void _togglePlay() {
     if (playerState == PlayerState.playing) {
       player.pause();
@@ -145,17 +174,19 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
     }
   }
 
-  Future<void> _translateCue(String cueText) async {
-    final key = cueText.trim();
-    if (key.isEmpty) return;
-    final inFlightKey = '${_selectedLanguage.code}:$key';
+  Future<void> _translateCue(int index) async {
+    final text = _cueText(index);
+    if (text.isEmpty) return;
+    final ctx = _contextFor(index);
+    final inFlightKey = '${_selectedLanguage.code}:$index';
     if (_translationInFlight.contains(inFlightKey)) return;
 
     setState(() => _translationInFlight.add(inFlightKey));
     try {
       await for (final partial in _translationService.translateStream(
-        text: key,
+        text: text,
         targetLanguage: _selectedLanguage,
+        context: ctx,
       )) {
         if (!mounted) return;
         setState(() => _streamingTranslations[inFlightKey] = partial);
@@ -181,15 +212,13 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
     }
   }
 
-  Future<void> _sendCueToAnki(Subtitle s) async {
+  Future<void> _sendCueToAnki(Subtitle s, int index) async {
     final key = '${s.start.inMilliseconds}:${s.text.trim()}';
     if (_ankiInFlight.contains(key)) return;
 
     setState(() => _ankiInFlight.add(key));
     try {
-      final offset = Duration(
-        milliseconds: (syncOffsetSeconds * 1000).round(),
-      );
+      final offset = Duration(milliseconds: (syncOffsetSeconds * 1000).round());
       var start = s.start + offset;
       var end = s.end + offset;
       if (start < Duration.zero) start = Duration.zero;
@@ -197,16 +226,20 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
         throw StateError('Intervalo de áudio inválido para este subtítulo.');
       }
 
-      final cueText = s.text.trim();
+      final cueText = s.text.trim(); // vai no cartão, como antes
+      final text = _cueText(index); // vai para o modelo
+      final ctx = _contextFor(index);
       var translation = _translationService.getCachedTranslation(
         _selectedLanguage.code,
-        cueText,
+        text,
+        context: ctx,
       );
       if (translation == null || translation.isEmpty) {
         try {
           translation = await _translationService.translate(
-            text: cueText,
+            text: text,
             targetLanguage: _selectedLanguage,
+            context: ctx,
           );
         } catch (_) {
           translation = null;
@@ -224,7 +257,9 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Cartão enviado para o baralho ${AnkiService.deckName}'),
+          content: Text(
+            'Cartão enviado para o baralho ${AnkiService.deckName}',
+          ),
           backgroundColor: Colors.green,
         ),
       );
@@ -652,13 +687,16 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                 itemBuilder: (context, index) {
                   final s = subtitles[index];
                   final hl = (sync && index == currentIndex);
-                  final cueKey = '${_selectedLanguage.code}:${s.text.trim()}';
+                  final text = _cueText(index);
+                  final ctx = _contextFor(index);
+                  final cueKey = '${_selectedLanguage.code}:$index';
                   final ankiKey = '${s.start.inMilliseconds}:${s.text.trim()}';
                   final sendingAnki = _ankiInFlight.contains(ankiKey);
                   final live = _streamingTranslations[cueKey];
                   final cached = _translationService.getCachedTranslation(
                     _selectedLanguage.code,
-                    s.text.trim(),
+                    text,
+                    context: ctx,
                   );
                   final shown =
                       (live != null && live.isNotEmpty) ? live : cached;
@@ -746,13 +784,15 @@ class _SubtitlePlayerScreenState extends State<SubtitlePlayerScreen> {
                         IconButton(
                           tooltip:
                               'Traduzir para ${_selectedLanguage.name} (${_selectedLanguage.flag})',
-                          onPressed: () => _translateCue(s.text),
+                          onPressed: () => _translateCue(index),
                           icon: const Icon(Icons.translate),
                         ),
                         IconButton(
                           tooltip: 'Cortar áudio e enviar para o Anki',
                           onPressed:
-                              sendingAnki ? null : () => _sendCueToAnki(s),
+                              sendingAnki
+                                  ? null
+                                  : () => _sendCueToAnki(s, index),
                           icon:
                               sendingAnki
                                   ? const SizedBox(

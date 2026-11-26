@@ -27,16 +27,21 @@ void main() {
     test('TranslationService handles empty text without calling API', () async {
       final service = TranslationService.instance;
       final pt = TranslationService.supportedLanguages.first;
-      final result = await service.translate(text: '   ', targetLanguage: pt);
+      final result = await service.translate(
+        text: '   ',
+        targetLanguage: pt,
+        context: [],
+      );
       expect(result, isEmpty);
     });
 
     test('translateStream yields empty for blank text', () async {
       final service = TranslationService.instance;
       final pt = TranslationService.supportedLanguages.first;
-      final chunks = await service
-          .translateStream(text: '   ', targetLanguage: pt)
-          .toList();
+      final chunks =
+          await service
+              .translateStream(text: '   ', targetLanguage: pt, context: [])
+              .toList();
       expect(chunks, ['']);
     });
 
