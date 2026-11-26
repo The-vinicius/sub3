@@ -243,13 +243,14 @@ class TranslationService {
   }) {
     final lang = _promptLangName[target.code] ?? target.name;
     if (context.isEmpty) {
-      return 'Translate the following segment into $lang, '
-          'without additional explanation.\n\n$text';
+      return 'Translate the following text into $lang. Note that you should '
+          'only output the translated result without any additional '
+          'explanation:\n$text';
     }
-    return '${context.join('\n')}\n'
-        'Refer to the context above and translate the following text into '
-        '$lang. Do not translate the context, output only the translation, '
-        'without additional explanation:\n$text';
+    return '[Background Information]\n${context.join('\n')}\n'
+        'Please translate the following text into $lang, taking the provided '
+        'background information into consideration.\n'
+        '[Source Text]\n$text';
   }
 
   void dispose() {
